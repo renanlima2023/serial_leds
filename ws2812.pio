@@ -1,0 +1,40 @@
+.pio_version 0
+
+.program ws2812_driver
+.side_set 1
+
+.define public TIM1 3
+.define public TIM2 3
+.define public TIM3 4
+
+.wrap_target
+bitwise_loop:
+    out x, 1        side 0 [TIM3 - 1] 
+    jmp !x zero_action side 1 [TIM1 - 1] 
+one_action:
+    jmp  bitwise_loop side 1 [TIM2 - 1] 
+zero_action:
+    nop             side 0 [TIM2 - 1] 
+.wrap
+
+% c-sdk {
+#include "hardware/clocks.h"
+
+// Função para inicializar o programa WS2812
+static inline void ws2812_init(PIO pio, uint sm, uint offset, uint pin, float frequency, bool rgbw_mode) {
+    pio_gpio_init(pio, pin);  
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+
+    pio_sm_config config = ws2812_driver_program_get_default_config(offset);
+    sm_config_set_sideset_pins(&config, pin);
+    sm_config_set_out_shift(&config, false, true, rgbw_mode ? 32 : 24);
+    sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_TX);
+
+    int bit_cycles = TIM1 + TIM2 + TIM3;  
+    float divisor = clock_get_hz(clk_sys) / (frequency * bit_cycles);
+    
+    sm_config_set_clkdiv(&config, divisor);
+    pio_sm_init(pio, sm, offset, &config);
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}
