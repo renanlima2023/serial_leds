@@ -1,5 +1,5 @@
-#include "ssd1306.h"
-#include "font.h"
+#include "inc/ssd1306.h"
+#include "inc/font.h"
 
 void ssd1306_init(ssd1306_t *ssd, uint8_t width, uint8_t height, bool external_vcc, uint8_t address, i2c_inst_t *i2c) {
   ssd->width = width;
@@ -79,7 +79,6 @@ void ssd1306_pixel(ssd1306_t *ssd, uint8_t x, uint8_t y, bool value) {
 
 
 void ssd1306_fill(ssd1306_t *ssd, bool value) {
-    // Itera por todas as posições do display
     for (uint8_t y = 0; y < ssd->height; ++y) {
         for (uint8_t x = 0; x < ssd->width; ++x) {
             ssd1306_pixel(ssd, x, y, value);
@@ -150,6 +149,7 @@ void ssd1306_vline(ssd1306_t *ssd, uint8_t x, uint8_t y0, uint8_t y1, bool value
 // Função para desenhar um caractere
 void ssd1306_draw_char(ssd1306_t *ssd, char c, uint8_t x, uint8_t y) {
     uint16_t index = 0;
+    char ver=c;
 
     // Mapeamento de caracteres
     if (c >= 'A' && c <= 'Z') {
@@ -163,8 +163,8 @@ void ssd1306_draw_char(ssd1306_t *ssd, char c, uint8_t x, uint8_t y) {
         index = 0;  // Caractere não mapeado
     }
 
-    // Desenha o caractere (5x8) na posição especificada
-    for (uint8_t i = 0; i < 5; ++i) {  // Apenas 5 colunas por caractere
+    // Desenha o caractere  na posição especificada
+    for (uint8_t i = 0; i < 8; ++i) {  // Apenas 8 colunas por caractere
         uint8_t line = font[index + i];  // Acessa o byte correto do caractere
         for (uint8_t j = 0; j < 8; ++j) {
             ssd1306_pixel(ssd, x + i, y + j, line & (1 << j));  // Desenha o pixel
@@ -182,13 +182,13 @@ void ssd1306_draw_string(ssd1306_t *ssd, const char *str, uint8_t x, uint8_t y)
   while (*str)
   {
     ssd1306_draw_char(ssd, *str++, x, y);
-    x += 6;  // Aumenta o espaçamento para garantir que os caracteres não se sobreponham
+    x += 8;  // Aumenta o espaçamento para garantir que os caracteres não se sobreponham
 
     // Verifica se o próximo caractere ultrapassa a largura da tela
-    if (x + 6 >= ssd->width)
+    if (x + 9 >= ssd->width)
     {
       x = 0;  // Volta para o início da linha
-      y += 8; // Move para a próxima linha
+      y += 9; // Move para a próxima linha
     }
 
     // Verifica se o próximo caractere ultrapassa a altura da tela

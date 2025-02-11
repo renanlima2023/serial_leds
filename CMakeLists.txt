@@ -40,7 +40,7 @@ project(serial_leds C CXX ASM)
 pico_sdk_init()
 
 # Adicione o executável principal
-add_executable(serial_leds serial_leds.c ssd1306.c)
+add_executable(serial_leds serial_leds.c inc/ssd1306.c)
 
 # Gere automaticamente o cabeçalho ws2812.pio.h
 pico_generate_pio_header(serial_leds ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio)
@@ -50,7 +50,7 @@ pico_set_program_name(serial_leds "serial_leds")
 pico_set_program_version(serial_leds "0.1")
 
 # Ative UART e USB para comunicação
-pico_enable_stdio_uart(serial_leds 0)
+pico_enable_stdio_uart(serial_leds 1)
 pico_enable_stdio_usb(serial_leds 1)
 
 # Adicione bibliotecas necessárias
@@ -61,12 +61,11 @@ target_link_libraries(serial_leds
     hardware_i2c
 )
 
-# Adicione as dependências do PIO e configure corretamente
-target_include_directories(serial_leds PRIVATE ${PICO_SDK_PATH}/src/rp2_common/hardware_pio/include)
-target_link_libraries(serial_leds hardware_pio)
+#  Adiciona os diretórios de include necessários
+target_include_directories(serial_leds PRIVATE
+${CMAKE_CURRENT_LIST_DIR}
+)
 
-# Inclua os diretórios necessários (já coberto pelo pico_sdk_import.cmake)
-# target_include_directories(serial_leds PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 
 # Adicione saídas extras
 pico_add_extra_outputs(serial_leds)
