@@ -1,17 +1,23 @@
 # == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
+
 if(WIN32)
     set(USERHOME $ENV{USERPROFILE})
 else()
     set(USERHOME $ENV{HOME})
 endif()
+
 set(sdkVersion 2.1.0)
 set(toolchainVersion 13_3_Rel1)
 set(picotoolVersion 2.1.0)
+
 set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
+
 if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif()
+
 # ====================================================================================
+
 cmake_minimum_required(VERSION 3.13)
 
 # Definição do padrão de C e C++
@@ -22,10 +28,10 @@ set(CMAKE_CXX_STANDARD 17)
 set(PICO_BOARD pico_w CACHE STRING "Board type")
 
 # Caminho para o SDK do Raspberry Pi Pico (modifique conforme necessário)
-set(PICO_SDK_PATH "C:/Users/renan/pico-sdk")  # Caminho correto para o SDK
+set(PICO_SDK_PATH "C:/Users/renan/.pico-sdk")  # Caminho correto para o SDK
 
 # Puxe o SDK do Raspberry Pi Pico
-include(pico_sdk_import.cmake)
+include(C:/Users/renan/.pico-sdk/cmake/pico_sdk_import.cmake)
 
 # Nome do projeto
 project(serial_leds C CXX ASM)
@@ -50,11 +56,9 @@ pico_enable_stdio_usb(serial_leds 1)
 # Adicione bibliotecas necessárias
 target_link_libraries(serial_leds
     pico_stdlib
-    hardware_gpio
-    hardware_i2c
-    hardware_uart
     hardware_pio
-    hardware_clocks
+    hardware_timer
+    hardware_i2c
 )
 
 # Adicione as dependências do PIO e configure corretamente

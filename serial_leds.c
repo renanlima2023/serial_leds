@@ -3,197 +3,231 @@
 #include "hardware/timer.h"
 #include "ws2812.pio.h"
 #include "hardware/pio.h"
-#include "num.h"
+#include "num.h" 
 #include "hardware/i2c.h"
 #include "ssd1306.h"
 #include "font.h"
 
-#define BTN1 5
-#define BTN2 6
-#define LED1 11
-#define LED2 12
-#define DEBOUNCE_DELAY 500
+#define BUTTON_A 5
+#define BUTTON_B 6
+#define GREEN_LED_PIN 11
+#define BLUE_LED_PIN 12
+#define DEBOUNCE_TIME 500
 
-#define RGBW_MODE false
-#define LED_STRIP_PIN 7
+#define IS_RGBW false
+#define WS2812_PIN 7
 
-#define OLED_I2C i2c1
-#define OLED_ADDR 0x3C
-#define SDA_PIN 14
-#define SCL_PIN 15
+#define I2C_PORT i2c1
+#define I2C_ADDR 0x3C
+#define I2C_SDA 14
+#define I2C_SCL 15
 
-ssd1306_t oled_display;
+ssd1306_t ssd;
 
-bool state_led1 = false;
-bool state_led2 = false;
-bool led_matrix[NUM_PIXELS];
+bool blue_led_on = false;
+bool green_led_on = false;
+bool led_buffer[NUM_PIXELS]; // Buffer de LEDs
 
-void configure_leds();
-void configure_i2c();
-void configure_interrupts();
-void configure_ws2812();
-void toggle_led1();
-void toggle_led2();
-void copy_matrix(bool *destination, const bool *source);
-static inline void send_pixel(uint32_t pixel_data);
-static inline uint32_t encode_pixel(uint8_t r, uint8_t g, uint8_t b);
-void illuminate_led(uint8_t r, uint8_t g, uint8_t b);
-void display_character(char c);
-void show_digit_on_leds(char n);
-static void button_handler(uint gpio, uint32_t events);
+void turn_on_led(bool g, bool b);
+static void irq_handler(uint gpio, uint32_t events);
+void toggle_led(uint8_t led_pin, bool *led_state, uint8_t color);
+void copy_array(bool *dest, const bool *src); // Função para copiar um array para outro
+static inline void put_pixel(uint32_t pixel_grb); // Função para enviar um pixel para o buffer
+static inline uint32_t urgb_u32(uint8_t r, uint8_t g, uint8_t b); // Função para converter um pixel para um inteiro
+void set_one_led(uint8_t r, uint8_t g, uint8_t b); // Função para definir a cor de todos os LEDs
+void i2c_setup(); // Função para inicializar o I2C
+void led_setup(); // Função para inicializar os LEDs
+void irq_setup(); // Função para inicializar os IRQs
+void ws2812_setup(); // Função para inicializar o WS2812
+void print_number_on_leds(char n); // Função para imprimir um número na matriz de LEDs
+void print_char_on_display(char c); // Função para imprimir um caractere no display OLED
 
-int main() {
+int main()
+{
     stdio_init_all();
 
-    configure_leds();
-    configure_i2c();
-    configure_interrupts();
-    configure_ws2812();
+    led_setup();
+    i2c_setup();
+    irq_setup();
+    ws2812_setup();
 
     while (true) {
         if (stdio_usb_connected()) {
-            char input_char;
-            if (scanf("%c", &input_char) == 1) {
-                printf("Input recebido: %c\n", input_char);
+            char c;
+            if (scanf("%c", &c) == 1) {
+                printf("Caractere lido: %c\n", c);
 
-                if (input_char == '.') {
-                    illuminate_led(0, 0, 0);
+                if (c == '.') {
+                    set_one_led(0, 0, 0);
                     continue;
                 }
-                
-                if (!((input_char >= '0' && input_char <= '9') ||
-                      (input_char >= 'A' && input_char <= 'Z') ||
-                      (input_char >= 'a' && input_char <= 'z'))) continue;
 
-                display_character(input_char);
-                show_digit_on_leds(input_char);
+                if ((c < '0' || c > '9') && (c < 'A' || c > 'Z') && (c < 'a' || c > 'z')) continue;
+
+                print_char_on_display(c);
+                print_number_on_leds(c);
             }
         }
         sleep_ms(10);
     }
 }
 
-void configure_ws2812() {
+void ws2812_setup() {
+    // Inicialização do PIO
     PIO pio = pio0;
     int sm = 0;
+
     uint offset = pio_add_program(pio, &ws2812_program);
-    ws2812_program_init(pio, sm, offset, LED_STRIP_PIN, 800000, RGBW_MODE);
-    illuminate_led(0, 0, 0);
+
+    // Inicialização do programa do WS2812
+    ws2812_program_init(pio, sm, offset, WS2812_PIN, 800000, IS_RGBW);
+
+    set_one_led(0, 0, 0); // Desliga todos os LEDs da matriz
 }
 
-void display_character(char c) {
-    ssd1306_fill(&oled_display, false);
-    ssd1306_draw_char(&oled_display, c, 64, 32);
-    ssd1306_send_data(&oled_display);
+void print_char_on_display(char c) {
+    ssd1306_fill(&ssd, false);
+    ssd1306_draw_char(&ssd, c, 64, 32);
+    ssd1306_send_data(&ssd);
 }
 
-void show_digit_on_leds(char n) {
-    printf("Exibindo número %c\n", n);
+void print_number_on_leds(char n) {
+    printf("Imprimindo o número %c\n", n);
     switch (n) {
-        case '0': copy_matrix(led_matrix, zero); break;
-        case '1': copy_matrix(led_matrix, one); break;
-        case '2': copy_matrix(led_matrix, two); break;
-        case '3': copy_matrix(led_matrix, three); break;
-        case '4': copy_matrix(led_matrix, four); break;
-        case '5': copy_matrix(led_matrix, five); break;
-        case '6': copy_matrix(led_matrix, six); break;
-        case '7': copy_matrix(led_matrix, seven); break;
-        case '8': copy_matrix(led_matrix, eight); break;
-        case '9': copy_matrix(led_matrix, nine); break;
+        case '0': copy_array(led_buffer, zero); break;
+        case '1': copy_array(led_buffer, one); break;
+        case '2': copy_array(led_buffer, two); break;
+        case '3': copy_array(led_buffer, three); break;
+        case '4': copy_array(led_buffer, four); break;
+        case '5': copy_array(led_buffer, five); break;
+        case '6': copy_array(led_buffer, six); break;
+        case '7': copy_array(led_buffer, seven); break;
+        case '8': copy_array(led_buffer, eight); break;
+        case '9': copy_array(led_buffer, nine); break;
         default: return;
     }
-    illuminate_led(100, 0, 0);
+
+    set_one_led(100, 0, 0);
 }
 
-void configure_interrupts() {
-    gpio_set_irq_enabled_with_callback(BTN1, GPIO_IRQ_EDGE_FALL, true, &button_handler);
-    gpio_set_irq_enabled_with_callback(BTN2, GPIO_IRQ_EDGE_FALL, true, &button_handler);
+void irq_setup() {
+    // Configuração do IRQ para o botão A
+    gpio_set_irq_enabled_with_callback(BUTTON_A, GPIO_IRQ_EDGE_FALL, true, &irq_handler);
+
+    // Configuração do IRQ para o botão B
+    gpio_set_irq_enabled_with_callback(BUTTON_B, GPIO_IRQ_EDGE_FALL, true, &irq_handler);
 }
     
-void configure_leds() {
-    gpio_init(LED1);
-    gpio_set_dir(LED1, GPIO_OUT);
+void led_setup() {
+    // Configuração do pino de LED azul
+    gpio_init(BLUE_LED_PIN);
+    gpio_set_dir(BLUE_LED_PIN, GPIO_OUT);
 
-    gpio_init(LED2);
-    gpio_set_dir(LED2, GPIO_OUT);
+    // Configuração do pino de LED verde
+    gpio_init(GREEN_LED_PIN);
+    gpio_set_dir(GREEN_LED_PIN, GPIO_OUT);
 
-    gpio_init(BTN1);
-    gpio_set_dir(BTN1, GPIO_IN);
-    gpio_pull_up(BTN1);
+    // Configuração do pino de botão A
+    gpio_init(BUTTON_A);
+    gpio_set_dir(BUTTON_A, GPIO_IN);
+    gpio_pull_up(BUTTON_A);
 
-    gpio_init(BTN2);
-    gpio_set_dir(BTN2, GPIO_IN);
-    gpio_pull_up(BTN2);
+    // Configuração do pino de botão B
+    gpio_init(BUTTON_B);
+    gpio_set_dir(BUTTON_B, GPIO_IN);
+    gpio_pull_up(BUTTON_B);
 }
 
-void configure_i2c() {
-    i2c_init(OLED_I2C, 400 * 1000);
-    gpio_set_function(SDA_PIN, GPIO_FUNC_I2C);
-    gpio_set_function(SCL_PIN, GPIO_FUNC_I2C);
-    gpio_pull_up(SDA_PIN);
-    gpio_pull_up(SCL_PIN);
+void i2c_setup() {
+    // Inicialização do I2C em 400 kHz
+    i2c_init(I2C_PORT, 400 * 1000);
 
-    ssd1306_init(&oled_display, WIDTH, HEIGHT, false, OLED_ADDR, OLED_I2C);
-    ssd1306_config(&oled_display);
-    ssd1306_fill(&oled_display, false);
-    ssd1306_send_data(&oled_display);
+    // Configuração dos pinos SDA e SCL
+    gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);
+    gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);
+    gpio_pull_up(I2C_SDA);
+    gpio_pull_up(I2C_SCL);
+
+    ssd1306_init(&ssd, WIDTH, HEIGHT, false, I2C_ADDR, I2C_PORT); // Inicializa o display OLED
+    ssd1306_config(&ssd); // Configura o display OLED
+    ssd1306_fill(&ssd, false); // Limpa o display OLED
+    ssd1306_send_data(&ssd); // Envia os dados para o display OLED
 }
 
-void illuminate_led(uint8_t r, uint8_t g, uint8_t b) {
-    gpio_put(LED1, r > 0);
-    gpio_put(LED2, b > 0);
+void turn_on_led(bool g, bool b) {
+    gpio_put(GREEN_LED_PIN, g);
+    gpio_put(BLUE_LED_PIN, b);
 }
 
-static void button_handler(uint gpio, uint32_t events) {
-    static volatile uint32_t last_time1 = 0;
-    volatile uint32_t now1 = to_ms_since_boot(get_absolute_time());
-    static volatile uint32_t last_time2 = 0;
-    volatile uint32_t now2 = to_ms_since_boot(get_absolute_time());
+static void irq_handler(uint gpio, uint32_t events) {
+    static uint32_t last_time_a = 0; // Tempo da última pressão do botão A
+    uint32_t current_time_a = to_ms_since_boot(get_absolute_time()); // Tempo atual da pressão do botão A
+    static uint32_t last_time_b = 0; // Tempo da última pressão do botão B
+    uint32_t current_time_b = to_ms_since_boot(get_absolute_time()); // Tempo atual da pressão do botão B
 
-    if (gpio == BTN1) {
-        if (now1 - last_time1 < DEBOUNCE_DELAY) return;
-        last_time1 = now1;
-        printf("Botão 1 pressionado\n");
-        toggle_led1();
+    // Verifica se o botão pressionado foi o A
+    if (gpio == BUTTON_A) {
+        if (current_time_a - last_time_a < DEBOUNCE_TIME) return; // Verifica se o tempo de debounce foi atingido
+        last_time_a = current_time_a;
+
+        printf("Botão A pressionado\n");
+        toggle_led(GREEN_LED_PIN, &green_led_on, 0);  // Aciona a função para alternar o estado do LED verde
         return;
     }
 
-    if (now2 - last_time2 < DEBOUNCE_DELAY) return;
-    last_time2 = now2;
-    printf("Botão 2 pressionado\n");
-    toggle_led2();
+    // Se chegou aqui, o botão pressionado foi o B
+    if (current_time_b - last_time_b < DEBOUNCE_TIME) return; // Verifica se o tempo de debounce foi atingido
+    last_time_b = current_time_b;
+
+    printf("Botão B pressionado\n");
+    toggle_led(BLUE_LED_PIN, &blue_led_on, 1);  // Aciona a função para alternar o estado do LED azul
 }
 
-void toggle_led1() {
-    ssd1306_fill(&oled_display, false);
-    if (state_led1) {
-        printf("Desativando LED 1\n");
-        state_led1 = false;
-        illuminate_led(0, 0, 0);
-    } else {
-        printf("Ativando LED 1\n");
-        state_led1 = true;
-        illuminate_led(1, 0, 0);
+void toggle_led(uint8_t led_pin, bool *led_state, uint8_t color) {
+    ssd1306_fill(&ssd, false);
+    if (*led_state) { // Se o LED estiver ligado, desliga
+        ssd1306_draw_string(&ssd, "Led", 27, 32);
+        ssd1306_draw_string(&ssd, "desligado", 27, 42);
+        ssd1306_send_data(&ssd);
+        *led_state = false;
+        turn_on_led(false, false);
+    } else { // Se o LED estiver desligado, liga
+        ssd1306_draw_string(&ssd, "Led", 27, 32);
+        ssd1306_draw_string(&ssd, "ligado", 25, 42);
+        ssd1306_send_data(&ssd);
+        *led_state = true;
+        if (color == 0) {  // LED verde
+            turn_on_led(true, false);
+        } else {           // LED azul
+            turn_on_led(false, true);
+        }
     }
-    ssd1306_send_data(&oled_display);
 }
 
-void toggle_led2() {
-    ssd1306_fill(&oled_display, false);
-    if (state_led2) {
-        printf("Desativando LED 2\n");
-        state_led2 = false;
-        illuminate_led(0, 0, 0);
-    } else {
-        printf("Ativando LED 2\n");
-        state_led2 = true;
-        illuminate_led(0, 0, 1);
-    }
-    ssd1306_send_data(&oled_display);
-}
-
-void copy_matrix(bool *destination, const bool *source) {
+void copy_array(bool *dest, const bool *src) {
     for (int i = 0; i < NUM_PIXELS; i++) {
-        destination[i] = source[i];
+        dest[i] = src[i];
+    }
+}
+
+static inline void put_pixel(uint32_t pixel_grb) {
+    pio_sm_put_blocking(pio0, 0, pixel_grb << 8u);
+}
+
+static inline uint32_t urgb_u32(uint8_t r, uint8_t g, uint8_t b) {
+    return ((uint32_t)(r) << 8) | ((uint32_t)(g) << 16) | (uint32_t)(b);
+}
+
+void set_one_led(uint8_t r, uint8_t g, uint8_t b) {
+    // Define a cor com base nos parâmetros fornecidos
+    uint32_t color = urgb_u32(r, g, b);
+
+    // Define todos os LEDs com a cor especificada
+    for (int i = 0; i < NUM_PIXELS; i++) {
+        if (led_buffer[i]) {
+            put_pixel(color); // Liga o LED com um no buffer
+        } else {
+            put_pixel(0);  // Desliga os LEDs com zero no buffer
+        }
     }
 }
